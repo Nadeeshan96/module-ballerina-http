@@ -1,3 +1,4 @@
+
 # Change Log
 This file contains all the notable changes done to the Ballerina HTTP package through the releases.
 
@@ -5,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+
+### Added
+- [Implement Typed `headers` for HTTP response](https://github.com/ballerina-platform/ballerina-standard-library/issues/2563)
+- [Add map<string> data binding support for application/www-x-form-urlencoded](https://github.com/ballerina-platform/ballerina-standard-library/issues/2526)
+- [Add compiler validation for payload annotation usage](https://github.com/ballerina-platform/ballerina-standard-library/issues/2561)
+- [Add support to provide inline request/response body with `x-form-urlencoded` content](https://github.com/ballerina-platform/ballerina-standard-library/issues/2596)
+
+## [2.1.0] - 2021-12-14
 
 ### Added
 - [Introduce interceptors at service level](https://github.com/ballerina-platform/ballerina-standard-library/issues/2447)
@@ -18,6 +27,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 ### Changed
 - [Rename RequestContext add function to set](https://github.com/ballerina-platform/ballerina-standard-library/issues/2414)
 - [Only allow default path in interceptors engaged at listener level](https://github.com/ballerina-platform/ballerina-standard-library/issues/2452)
+- [Provide a better way to send with `application/x-www-form-urlencoded`](https://github.com/ballerina-platform/ballerina-standard-library/issues/1705)
 
 ## [2.0.1] - 2021-11-20
 

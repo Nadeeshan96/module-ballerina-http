@@ -21,6 +21,9 @@ import ballerina/io;
 import ballerina/observe;
 import ballerina/time;
 import ballerina/log;
+import ballerina/lang.'string as strings;
+import ballerina/url;
+import ballerina/regex;
 
 final boolean observabilityEnabled = observe:isObservabilityEnabled();
 
@@ -37,7 +40,7 @@ public isolated function parseHeader(string headerValue) returns HeaderValue[]|C
     name: "parseHeader"
 } external;
 
-isolated function buildRequest(RequestMessage message) returns Request|ClientError {
+isolated function buildRequest(RequestMessage message, string? mediaType) returns Request|ClientError {
     Request request = new;
     if (message is ()) {
         request.noEntityBody = true;
@@ -55,15 +58,49 @@ isolated function buildRequest(RequestMessage message) returns Request|ClientErr
         request.setByteStream(message);
     } else if (message is mime:Entity[]) {
         request.setBodyParts(message);
-    } else {
-        var result = trap val:toJson(message);
-        if (result is error) {
-            return error InitializingOutboundRequestError("json conversion error: " + result.message(), result);
-        } else {
-            request.setJsonPayload(result);
+    } else if message is anydata {
+        match mediaType {
+            mime:APPLICATION_FORM_URLENCODED => {
+                map<string>|error pairs = val:cloneWithType(message);
+                if pairs is error {
+                    return error InitializingOutboundRequestError("unsupported content for application/x-www-form-urlencoded media type");
+                }
+                string payload = check processUrlEncodedContent(pairs);
+                request.setTextPayload(payload, mime:APPLICATION_FORM_URLENCODED);
+            }
+            _ => {
+                json payload = check processJsonContent(message);
+                request.setJsonPayload(payload);
+            }
         }
+
+    } else {
+        string errorMsg = "invalid request body type. expected one of the types: http:Request|xml|json|table<map<json>>|(map<json>|table<map<json>>)[]|mime:Entity[]|stream<byte[], io:Error?>";
+        panic error InitializingOutboundRequestError(errorMsg);
     }
     return request;
+}
+
+isolated function processUrlEncodedContent(map<string> message) returns string|ClientError {
+    do {
+        string[] messageParams = [];
+        foreach var ['key, value] in message.entries() {
+            string encodedValue = check url:encode(value, "UTF-8");
+            string entry = string `${'key}=${encodedValue}`;
+            messageParams.push(entry);
+        }
+        return strings:'join("&", ...messageParams);
+    } on fail var e {
+        return error InitializingOutboundRequestError("content encoding error: " + e.message(), e);
+    }
+}
+
+isolated function processJsonContent(anydata message) returns json|ClientError {
+    var result = trap val:toJson(message);
+    if (result is error) {
+        return error InitializingOutboundRequestError("json conversion error: " + result.message(), result);
+    }
+    return result;
 }
 
 isolated function buildResponse(ResponseMessage message) returns Response|ListenerError {
@@ -82,13 +119,16 @@ isolated function buildResponse(ResponseMessage message) returns Response|Listen
         response.setByteStream(message);
     } else if (message is mime:Entity[]) {
         response.setBodyParts(message);
-    } else {
+    } else if message is anydata {
         var result = trap val:toJson(message);
         if (result is error) {
             return error InitializingOutboundResponseError("json conversion error: " + result.message(), result);
         } else {
             response.setJsonPayload(result);
         }
+    } else {
+        string errorMsg = "invalid response body type. expected one of the types: http:Response|xml|json|table<map<json>>|(map<json>|table<map<json>>)[]|mime:Entity[]|stream<byte[], io:Error?>";
+        panic error InitializingOutboundResponseError(errorMsg);
     }
     return response;
 }
@@ -464,4 +504,30 @@ isolated function setByteStream(mime:Entity entity, stream<byte[], io:Error?> by
             entity.setByteStream(byteStream, existingContentType);
         }
     }
+}
+
+isolated function getFormDataMap(string formData) returns map<string>|ClientError {
+    map<string> parameters = {};
+    if (formData == "") {
+        return parameters;
+    }
+    var decodedValue = decode(formData);
+    if decodedValue is error {
+        return error ClientError("form data decode failure");
+    }
+    if (strings:indexOf(decodedValue, "=") is ()) {
+        return error ClientError("Datasource does not contain form data");
+    }
+    string[] entries = regex:split(decodedValue, "&");
+    foreach string entry in entries {
+        int? index = entry.indexOf("=");
+        if (index is int && index != -1) {
+            string name = entry.substring(0, index);
+            name = name.trim();
+            string value = entry.substring(index + 1);
+            value = value.trim();
+            parameters[name] = value;
+        }
+    }
+    return parameters;
 }

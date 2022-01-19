@@ -28,6 +28,7 @@ import io.ballerina.runtime.observability.ObserverContext;
 import io.ballerina.stdlib.http.api.nativeimpl.ModuleUtils;
 import io.ballerina.stdlib.http.transport.message.HttpCarbonMessage;
 
+import static io.ballerina.stdlib.http.api.HttpConstants.OBSERVABILITY_CONTEXT_PROPERTY;
 import static java.lang.System.err;
 
 /**
@@ -54,8 +55,9 @@ public class HttpCallableUnitCallback implements Callback {
 
     @Override
     public void notifySuccess(Object result) {
-        cleanupRequestAndContext();
+        cleanupRequestMessage();
         if (alreadyResponded(result)) {
+            stopObserverContext();
             return;
         }
         printStacktraceIfError(result);
@@ -71,6 +73,7 @@ public class HttpCallableUnitCallback implements Callback {
         Callback returnCallback = new Callback() {
             @Override
             public void notifySuccess(Object result) {
+                stopObserverContext();
                 printStacktraceIfError(result);
             }
 
@@ -84,9 +87,19 @@ public class HttpCallableUnitCallback implements Callback {
                 returnCallback, null, PredefinedTypes.TYPE_NULL, paramFeed);
     }
 
+    private void stopObserverContext() {
+        if (ObserveUtils.isObservabilityEnabled()) {
+            ObserverContext observerContext = (ObserverContext) requestMessage
+                    .getProperty(OBSERVABILITY_CONTEXT_PROPERTY);
+            if (observerContext.isManuallyClosed()) {
+                ObserveUtils.stopObservationWithContext(observerContext);
+            }
+        }
+    }
+
     @Override
     public void notifyFailure(BError error) { // handles panic and check_panic
-        cleanupRequestAndContext();
+        cleanupRequestMessage();
         // This check is added to release the failure path since there is an authn/authz failure and responded
         // with 401/403 internally.
         if (error.getMessage().equals("Already responded by auth desugar.")) {
@@ -99,22 +112,12 @@ public class HttpCallableUnitCallback implements Callback {
     }
 
     private void sendFailureResponse(BError error) {
+        stopObserverContext();
         HttpUtil.handleFailure(requestMessage, error, true);
     }
 
-    private void cleanupRequestAndContext() {
+    private void cleanupRequestMessage() {
         requestMessage.waitAndReleaseAllEntities();
-        stopObservationWithContext();
-    }
-
-    private void stopObservationWithContext() {
-        if (ObserveUtils.isObservabilityEnabled()) {
-            ObserverContext observerContext
-                    = (ObserverContext) requestMessage.getProperty(HttpConstants.OBSERVABILITY_CONTEXT_PROPERTY);
-            if (observerContext != null) {
-                ObserveUtils.stopObservationWithContext(observerContext);
-            }
-        }
     }
 
     private boolean alreadyResponded(Object result) {
